@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor HIP-3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  /* Pagina di lavoro: intestazione con stato, due schede, card su griglia fluida */
+  :root {
+    --bg: #f6f7f5; --panel: #ffffff; --fg: #1d2421; --muted: #5d6963; --line: #dde2de;
+    --grid: #e9ece9; --axis: #a7b0aa; --a: #2f6f62; --b: #c27a2c; --barra-muta: #b9c2bc;
+    --ok: #1f7a4d; --bad: #b3412e; --warn: #9a6b00; --pop: #ffffff;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --serif: "IBM Plex Serif", Georgia, serif;
+    --r: 6px; color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121614; --panel: #1a201d; --fg: #e4e9e6; --muted: #97a39c; --line: #2c3430;
+      --grid: #252c28; --axis: #56615a; --a: #5fb39f; --b: #e0a05a; --barra-muta: #4a544e;
+      --ok: #5cc48b; --bad: #ef7d68; --warn: #e2b54a; --pop: #222a26; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  /* senza questa regola .sez (display: flex) vince sull'attributo hidden e le schede non si nascondono */
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.45; }
+  .wrap { max-width: 78rem; margin-inline: auto; padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 20px; }
+  h1 { font-family: var(--serif); font-weight: 400; font-size: 2rem; margin: 0; text-wrap: balance; }
+  .sub { margin: 4px 0 0; color: var(--muted); max-width: 75ch; }
+  .forte { color: var(--fg); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .avviso { padding: 8px 12px; border: 1px solid var(--warn); color: var(--warn); border-radius: var(--r); font-size: .85rem; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+  .tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 14px; font: inherit; color: var(--muted); cursor: pointer; }
+  .tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--fg); }
+  .tab:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+  .sez { display: flex; flex-direction: column; gap: 16px; }
+  .contenuto { display: flex; flex-direction: column; gap: 20px; }
+  .login { max-width: 26rem; margin: 10vh auto 0; display: flex; flex-direction: column; gap: 14px; width: 100%; }
+  .login-card { gap: 10px; }
+  .login input[type=password] { font: inherit; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--bg); color: var(--fg); }
+  .login input[type=password]:focus-visible, .login button:focus-visible, .link:focus-visible { outline: 2px solid var(--a); outline-offset: 1px; }
+  .ricorda { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); }
+  .login button { font: inherit; font-weight: 500; padding: 9px 12px; border: 0; border-radius: var(--r); background: var(--a); color: var(--panel); cursor: pointer; }
+  .login button:disabled { opacity: .6; cursor: default; }
+  .login-errore { margin: 0; color: var(--bad); font-size: .85rem; }
+  .link { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: var(--a); cursor: pointer; text-decoration: underline; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .card h2 { margin: 0; font-size: 1.05rem; font-weight: 500; }
+  .card h2 + p { margin: 0; font-size: .82rem; color: var(--muted); max-width: 85ch; }
+  .label { font-size: .78rem; color: var(--muted); letter-spacing: .02em; }
+  .num { font-family: var(--serif); font-size: 1.9rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .num small { font-family: var(--sans); font-size: .9rem; color: var(--muted); }
+  .note { font-size: .8rem; color: var(--muted); margin: 0; font-variant-numeric: tabular-nums; }
+  .err { font-size: .78rem; color: var(--muted); overflow-wrap: anywhere; }
+  .track { height: 8px; border-radius: 4px; background: var(--grid); overflow: hidden; }
+  .fill { height: 100%; width: 0; border-radius: 4px; transition: width .6s ease-out; }
+  .fill.a { background: var(--a); } .fill.b { background: var(--b); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .78rem; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .chart { position: relative; min-height: 18rem; }
+  .chart svg, .multi svg { display: block; }
+  .tip { position: absolute; pointer-events: none; background: var(--pop); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 4px 14px rgba(0,0,0,.12); padding: 4px 8px; font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; z-index: 2; }
+  .tip .h { color: var(--muted); }
+  .tabwrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.n, th.n { text-align: right; white-space: nowrap; }
+  .pill { display: inline-block; padding: 0 7px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; color: var(--muted); }
+  .pill.favore { color: var(--ok); border-color: var(--ok); }
+  .pill.contro { color: var(--bad); border-color: var(--bad); }
+  .multi { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 14px; position: relative; }
+  .multi h3 { margin: 0 0 4px; font-size: .8rem; font-weight: 500; }
+  .hm { display: grid; gap: 2px; font-size: .78rem; font-variant-numeric: tabular-nums; }
+  .hm div { padding: 4px; border-radius: 3px; text-align: center; white-space: nowrap; }
+  .hm .h { color: var(--muted); }
+  .hm .r { text-align: left; color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="login" id="login" hidden>
+    <h1>Monitor HIP-3</h1>
+    <p class="sub">Dashboard privata. I dati sono cifrati: servono la password per leggerli.</p>
+    <form id="login-form" class="card login-card">
+      <label class="label" for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" required>
+      <label class="ricorda"><input id="ricorda" type="checkbox"> Ricorda su questo dispositivo</label>
+      <button id="login-entra" type="submit">Entra</button>
+      <p class="login-errore" id="login-errore" role="alert" hidden></p>
+    </form>
+  </section>
+
+  <div class="contenuto" id="contenuto" hidden>
+  <header>
+    <h1>Monitor HIP-3</h1>
+    <p class="sub">Download: <span class="forte" data-campo="avanzamento.candele_completati">—</span> mercati su <span class="forte" data-campo="avanzamento.mercati_totali">—</span> con candele, <span class="forte" data-campo="avanzamento.funding_completati">—</span> con funding. Analisi su <span class="forte" data-campo="analisi.mercati_analizzati">—</span> mercati, rifatta alle <span class="forte" data-ora="analisi.giro_utc">—</span>. Dati del <span class="forte" data-ora="avanzamento.aggiornato_utc">—</span>; la pagina si aggiorna da sola in diretta.</p>
+  </header>
+  <div class="avviso" id="avviso" hidden></div>
+
+  <nav class="tabs" role="tablist" aria-label="Schede">
+    <button class="tab" role="tab" data-tab="analisi" aria-selected="true">Analisi</button>
+    <button class="tab" role="tab" data-tab="download" aria-selected="false">Download</button>
+  </nav>
+
+  <!-- ===================== ANALISI ===================== -->
+  <section class="sez" data-pannello="analisi">
+    <div class="card">
+      <h2>Le prime settimane sono meno efficienti?</h2>
+      <p>Test appaiato per mercato: settimane 0–3 dal lancio contro settimane dalla 8 in poi dello stesso mercato, al netto del periodo (confronto con i mercati maturi nella stessa settimana). Risultati provvisori finché il download non è completo.</p>
+      <div class="tiles">
+        <div><div class="label">A favore dell'ipotesi</div><div class="num" data-campo="analisi.a_favore">—</div></div>
+        <div><div class="label">Contro</div><div class="num" data-campo="analisi.contro">—</div></div>
+        <div><div class="label">Non significative</div><div class="num" data-campo="analisi.non_signif">—</div></div>
+        <div><div class="label">Mercati analizzati</div><div class="num"><span data-campo="analisi.mercati_analizzati">—</span> <small><span data-campo="analisi.mercati_con_funding">—</span> con funding</small></div></div>
+      </div>
+      <p class="note">Metriche di inefficienza contate a p &lt; 0,05 (Wilcoxon). Settimane-mercato: <span data-campo="analisi.settimane_mercato">—</span> · eventi shock: <span data-campo="analisi.eventi_shock">—</span> · ultimo giro: <span data-campo="analisi.messaggio">—</span></p>
+    </div>
+
+    <div class="card">
+      <h2>Metriche: prime settimane contro mesi successivi</h2>
+      <p>Prime e mature sono mediane tra mercati. Il rapporto vale per le metriche di scala (2 = doppio nelle prime settimane). Esito colorato solo dove p &lt; 0,05.</p>
+      <div class="tabwrap"><table>
+        <thead><tr><th>Metrica</th><th class="n">Mercati</th><th class="n">Prime sett.</th><th class="n">Mature</th><th class="n">Prime / mature</th><th class="n">Mercati con prime &gt; mature</th><th>Esito grezzo</th><th>Esito al netto del periodo</th></tr></thead>
+        <tbody id="t-test"></tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <h2>Profilo per età del mercato</h2>
+      <p>Per ogni settimana di vita (s0 = settimana del lancio), mediana dello scarto rispetto ai mercati maturi nella stessa settimana. Barra colorata: più inefficiente dei maturi; grigia: meno. Le fasce mature valgono circa zero per costruzione.</p>
+      <div class="legend"><span><i class="sw" style="background:var(--a)"></i>Più inefficiente dei maturi</span><span><i class="sw" style="background:var(--barra-muta)"></i>Meno inefficiente</span></div>
+      <div class="multi" id="g-fasce"></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Rimbalzo dopo movimenti bruschi</h2>
+        <p>Rendimento medio contro la direzione dello shock (|r| &gt; 3 sigma), in bps, entrando una barra dopo. Verde = rimbalzo; tra parentesi il t-stat. Costi da togliere: circa 20 bps andata e ritorno.</p>
+        <div class="hm" id="g-shock"></div>
+      </div>
+      <div class="card">
+        <h2>Scarto perp/oracolo e prezzo successivo</h2>
+        <p>Pendenza negativa: il perp rientra verso l'oracolo. Contrarian: ritorno medio scommettendo sul rientro quando lo scarto supera 20 bps.</p>
+        <div class="tabwrap"><table>
+          <thead><tr><th>Età</th><th class="n">Mercati</th><th class="n">|Scarto| mediano bps</th><th class="n">Pendenza</th><th class="n">Contrarian bps</th><th class="n">t</th></tr></thead>
+          <tbody id="t-premium"></tbody>
+        </table></div>
+        <p class="note" id="vuoto-premium"></p>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Weekend e apertura del lunedì</h2>
+        <p>Solo sottostanti che chiudono nel weekend. Correlazione negativa: il prezzo del weekend esagera e viene corretto all'apertura USA.</p>
+        <div class="tabwrap"><table>
+          <thead><tr><th>Età</th><th class="n">Weekend</th><th class="n">Correlazione</th><th class="n">Contrarian bps</th><th class="n">t</th></tr></thead>
+          <tbody id="t-weekend"></tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <h2>Effetti per ora del giorno</h2>
+        <p>Quota di mercati con un effetto orario significativo (p &lt; 0,05) su finestre della stessa durata. Senza effetti reali ci si aspetta circa il 5%.</p>
+        <div class="tiles">
+          <div><div class="label">Prime 4 settimane</div><div class="num" data-pct="analisi.stagionalita_prime_quota">—</div><div class="note"><span data-campo="analisi.stagionalita_prime_n">—</span> mercati</div></div>
+          <div><div class="label">Settimane 8–11</div><div class="num" data-pct="analisi.stagionalita_dopo_quota">—</div><div class="note"><span data-campo="analisi.stagionalita_dopo_n">—</span> mercati</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Settimane più anomale</h2>
+      <p>Mercato-settimane con il punteggio più alto, media dei percentili delle metriche di inefficienza rispetto ai mercati maturi. Spunti da approfondire, non segnali operativi.</p>
+      <div class="tabwrap"><table>
+        <thead><tr><th>Mercato</th><th>Settimana</th><th class="n">Età (sett.)</th><th class="n">Punteggio</th><th class="n">Spread bps</th><th class="n">|Autocorr.|</th><th class="n">Variance ratio</th><th class="n">Volume $/giorno</th></tr></thead>
+        <tbody id="t-anomalie"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- ===================== DOWNLOAD ===================== -->
+  <section class="sez" data-pannello="download" hidden>
+    <p class="note"><span class="forte" data-campo="avanzamento.stato">—</span>. Ora su <span class="forte" data-campo="avanzamento.mercato_corrente">—</span>; tempo residuo stimato <span class="forte" data-durata="avanzamento.minuti_residui_stimati">—</span><span id="prossimo-giro"></span>.</p>
+    <div class="tiles">
+      <div class="card">
+        <div class="label">Candele scaricate (1d, 4h, 1h)</div>
+        <div class="num"><span data-campo="avanzamento.candele_completati">—</span> <small>di <span data-campo="avanzamento.mercati_totali">—</span> mercati</small></div>
+        <div class="track"><div class="fill a" id="barra-candele"></div></div>
+        <div class="note"><span data-compatto="avanzamento.righe_candele">—</span> candele salvate in questo giro</div>
+      </div>
+      <div class="card">
+        <div class="label">Funding e premium scaricati</div>
+        <div class="num"><span data-campo="avanzamento.funding_completati">—</span> <small>di <span data-campo="avanzamento.mercati_totali">—</span> mercati</small></div>
+        <div class="track"><div class="fill b" id="barra-funding"></div></div>
+        <div class="note"><span data-compatto="avanzamento.righe_funding">—</span> ore di funding salvate</div>
+      </div>
+      <div class="card">
+        <div class="label">Tempo trascorso</div>
+        <div class="num" data-durata="avanzamento.minuti_trascorsi">—</div>
+        <div class="note">Avviato <span data-data="avanzamento.inizio_utc">—</span> · stato del <span data-data="avanzamento.aggiornato_utc">—</span></div>
+      </div>
+      <div class="card">
+        <div class="label">Mercati</div>
+        <div class="num"><span data-campo="avanzamento.mercati_totali">—</span> <small>su <span data-campo="avanzamento.dex">—</span> dex</small></div>
+        <div class="note"><span data-campo="avanzamento.delistati">—</span> delistati, inclusi nello studio</div>
+        <div class="note">Errori: <span data-campo="avanzamento.errori">—</span></div>
+        <div class="err" data-campo="avanzamento.ultimo_errore">—</div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <h2>Avanzamento per dex</h2>
+        <p>Barra grigia: mercati del dex. Colorate: mercati già scaricati, su una scala comune.</p>
+        <div class="legend"><span><i class="sw" style="background:var(--a)"></i>Candele</span><span><i class="sw" style="background:var(--b)"></i>Funding</span></div>
+        <div class="chart" id="g-dex"></div>
+      </div>
+      <div class="card">
+        <h2>Ritmo del download</h2>
+        <p>Mercati completati nel tempo, un punto per ogni giro del monitor (ora locale).</p>
+        <div class="legend"><span><i class="sw" style="background:var(--a)"></i>Candele</span><span><i class="sw" style="background:var(--b)"></i>Funding</span></div>
+        <div class="chart" id="g-ritmo"></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="note"><button class="link" id="esci" type="button">Esci</button> · Download e analisi girano sul PC di casa senza sosta: lo stato del download si aggiorna ogni minuto, l'analisi viene rifatta ogni pochi minuti sui dati scaricati fino a quel momento, e un nuovo giro di download riparte ogni 30 minuti. Ricerca, non consulenza finanziaria.</p>
+  </div>
+</div>
+
+<script>
+  // ---------------------------------------------------------------- dati
+  let DATI = {};
+  const righe = (t) => DATI[t] || [];
+  const riga0 = (t) => righe(t)[0] || null;
+  const valore = (perc) => { const [t, c] = perc.split('.'); const r = riga0(t); return r ? r[c] : null; };
+
+  // In locale stato.json è accanto alla pagina. Online (GitHub Pages) lo stato sta nel
+  // branch "dati" del repository e si legge dall'API di GitHub, che lo dà aggiornato
+  // pochi secondi dopo ogni invio dal PC (GitHub Pages invece andrebbe ricostruito).
+  const LOCALE = ['localhost', '127.0.0.1', ''].includes(location.hostname);
+  const PROPRIETARIO = location.hostname.split('.')[0];
+  const REPO = location.pathname.split('/')[1];
+  // Online lo stato è CIFRATO (AES-256-GCM): la chiave si ricava dalla password nel
+  // browser (PBKDF2-SHA256) e non lascia mai il dispositivo. In locale non serve.
+  const URL_API = `https://api.github.com/repos/${PROPRIETARIO}/${REPO}/contents/stato.enc.json?ref=dati`;
+  const URL_RAW = `https://raw.githubusercontent.com/${PROPRIETARIO}/${REPO}/dati/stato.enc.json`;
+  const MEMORIA = 'monitor-hip3-chiave';
+  let etag = null;
+  let cifrato = null;   // ultimo file cifrato scaricato
+  let chiave = null;    // CryptoKey AES-GCM, solo in memoria
+
+  const daB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  const aB64 = (b) => btoa(String.fromCharCode(...new Uint8Array(b)));
+  const leggiMemoria = () => { try { return sessionStorage.getItem(MEMORIA) || localStorage.getItem(MEMORIA); } catch (e) { return null; } };
+  const scriviMemoria = (valore, ricorda) => {
+    try {
+      sessionStorage.setItem(MEMORIA, valore);
+      if (ricorda) localStorage.setItem(MEMORIA, valore); else localStorage.removeItem(MEMORIA);
+    } catch (e) { /* memoria del browser non disponibile: si richiederà la password */ }
+  };
+  const dimentica = () => { try { sessionStorage.removeItem(MEMORIA); localStorage.removeItem(MEMORIA); } catch (e) { /* niente */ } };
+
+  async function chiaveDaPassword(password, file) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bit = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', hash: 'SHA-256', salt: daB64(file.sale), iterations: file.iterazioni }, base, 256);
+    return { grezza: aB64(bit), chiave: await crypto.subtle.importKey('raw', bit, 'AES-GCM', false, ['decrypt']) };
+  }
+  async function decifra(file, k) {
+    const chiaro = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: daB64(file.nonce) }, k, daB64(file.dati));
+    return JSON.parse(new TextDecoder().decode(chiaro));
+  }
+
+  async function scaricaCifrato() {
+    // richiesta condizionata: se non è cambiato nulla GitHub risponde 304 e non la conta nel limite orario
+    const intestazioni = { Accept: 'application/vnd.github.raw+json' };
+    if (etag) intestazioni['If-None-Match'] = etag;
+    const r = await fetch(URL_API, { headers: intestazioni, cache: 'no-store' });
+    if (r.status === 304) return null;
+    if (r.ok) { etag = r.headers.get('ETag'); return r.json(); }
+    // limite di richieste superato (60 l'ora per indirizzo): copia di riserva, al massimo 5 minuti indietro
+    const riserva = await fetch(URL_RAW, { cache: 'no-store' });
+    if (!riserva.ok) throw new Error(`HTTP ${r.status}`);
+    return riserva.json();
+  }
+
+  const mostra = (sbloccato) => {
+    document.getElementById('login').hidden = sbloccato;
+    document.getElementById('contenuto').hidden = !sbloccato;
+  };
+  const usaDati = (arr) => {
+    DATI = {};
+    arr.forEach((x) => { (DATI[x.tabella] = DATI[x.tabella] || []).push(x); });
+    mostra(true);
+    disegna();
+  };
+
+  async function carica() {
+    try {
+      if (LOCALE) {
+        const r = await fetch(`stato.json?t=${Date.now()}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        usaDati(await r.json());
+        return;
+      }
+      const nuovo = await scaricaCifrato();
+      if (nuovo) cifrato = nuovo;
+      if (!cifrato) return;
+      if (!chiave) {
+        const salvata = leggiMemoria();
+        if (salvata) chiave = await crypto.subtle.importKey('raw', daB64(salvata), 'AES-GCM', false, ['decrypt']);
+      }
+      if (!chiave) { mostra(false); return; }
+      try {
+        usaDati(await decifra(cifrato, chiave));
+      } catch (e) {
+        // la chiave ricordata non apre più i dati: la password è stata cambiata
+        chiave = null; dimentica();
+        erroreLogin('La password è stata cambiata: inserisci quella nuova.');
+        mostra(false);
+      }
+    } catch (e) {
+      if (!LOCALE && !cifrato) {
+        mostra(false);
+        erroreLogin('I dati cifrati non sono ancora pubblicati: sul PC va impostata la password (python imposta_password.py).');
+      } else {
+        avviso(`Non riesco a leggere lo stato (${e.message}). Riprovo tra poco.`);
+      }
+    }
+  }
+
+  const erroreLogin = (t) => { const el = document.getElementById('login-errore'); el.textContent = t; el.hidden = !t; };
+  document.getElementById('login-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const campo = document.getElementById('password');
+    const bottone = document.getElementById('login-entra');
+    erroreLogin('');
+    bottone.disabled = true; bottone.textContent = 'Verifica…';
+    try {
+      if (!cifrato) cifrato = await scaricaCifrato();
+      if (!cifrato) throw new Error('dati non ancora disponibili');
+      const { grezza, chiave: k } = await chiaveDaPassword(campo.value, cifrato);
+      const arr = await decifra(cifrato, k).catch(() => null);
+      if (!arr) { erroreLogin('Password errata.'); return; }
+      chiave = k;
+      scriviMemoria(grezza, document.getElementById('ricorda').checked);
+      campo.value = '';
+      usaDati(arr);
+    } catch (e) {
+      erroreLogin(`Non riesco a verificare la password (${e.message}).`);
+    } finally {
+      bottone.disabled = false; bottone.textContent = 'Entra';
+    }
+  });
+  document.getElementById('esci').addEventListener('click', () => {
+    chiave = null; DATI = {}; dimentica(); mostra(false);
+  });
+  const avviso = (testo) => { const a = document.getElementById('avviso'); a.hidden = !testo; a.textContent = testo || ''; };
+
+  // ---------------------------------------------------------------- formati
+  const fmtInt = d3.format(',');
+  const fmtG = d3.format('.3~g');
+  const fmtPct = d3.format('.0%');
+  const fmtCompatto = new Intl.NumberFormat('it', { notation: 'compact', maximumFractionDigits: 1 });
+  const fmtOra = d3.timeFormat('%H:%M');
+  const fmtData = d3.timeFormat('%-d/%m %H:%M');
+  const num = (v, f = fmtG) => (v == null || !isFinite(v) ? '—' : f(v));
+  const testo = (v) => (v == null ? '—' : (typeof v === 'number' ? fmtInt(v) : String(v)));
+  const durata = (m) => {
+    if (m == null || !isFinite(m)) return '—';
+    const h = Math.floor(m / 60), mm = Math.round(m % 60);
+    return h > 0 ? `${h} h ${mm} min` : `${mm} min`;
+  };
+  const css = (nome) => getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+
+  // ---------------------------------------------------------------- schede
+  const apri = (nome) => {
+    document.querySelectorAll('[data-pannello]').forEach((s) => { s.hidden = s.dataset.pannello !== nome; });
+    document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === nome)));
+    if (history.replaceState) history.replaceState(null, '', `#${nome}`);
+    disegna();
+  };
+  document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => apri(b.dataset.tab)));
+  if (location.hash === '#download') apri('download');
+
+  // ---------------------------------------------------------------- tooltip
+  const tooltip = (box) => {
+    const t = d3.select(box).append('div').attr('class', 'tip').style('display', 'none');
+    return {
+      show(x, y, titolo, linee) {
+        t.selectAll('*').remove();
+        t.append('div').attr('class', 'h').text(titolo);
+        linee.forEach((l) => t.append('div').text(l));
+        t.style('display', null);
+        const bw = box.clientWidth, tw = t.node().offsetWidth;
+        t.style('left', `${Math.max(0, Math.min(bw - tw, x + 12))}px`).style('top', `${Math.max(0, y - 10)}px`);
+      },
+      hide() { t.style('display', 'none'); },
+    };
+  };
+
+  // ---------------------------------------------------------------- tabelle
+  const tabella = (id, rows, celle) => {
+    const tb = document.getElementById(id);
+    tb.replaceChildren();
+    rows.forEach((r) => {
+      const tr = tb.insertRow();
+      celle(r).forEach(([v, cl]) => {
+        const td = tr.insertCell();
+        if (cl) td.className = cl;
+        if (v instanceof Node) td.appendChild(v); else td.textContent = v;
+      });
+    });
+  };
+  const pill = (esito) => {
+    const s = document.createElement('span');
+    s.className = 'pill ' + (esito === 'A FAVORE' ? 'favore' : esito === 'CONTRO' ? 'contro' : '');
+    s.textContent = esito === 'A FAVORE' ? 'a favore' : esito === 'CONTRO' ? 'contro' : (esito || '—');
+    return s;
+  };
+
+  // ---------------------------------------------------------------- disegno
+  const ORDINE = ['s0', 's1', 's2', 's3', 's4-7', 's8-12', 's13-25', 's26+'];
+
+  function disegna() {
+    document.querySelectorAll('[data-campo]').forEach((el) => { el.textContent = testo(valore(el.dataset.campo)); });
+    document.querySelectorAll('[data-pct]').forEach((el) => { el.textContent = num(valore(el.dataset.pct), fmtPct); });
+    document.querySelectorAll('[data-durata]').forEach((el) => { el.textContent = durata(valore(el.dataset.durata)); });
+    document.querySelectorAll('[data-compatto]').forEach((el) => {
+      const v = Number(valore(el.dataset.compatto)); el.textContent = isFinite(v) ? fmtCompatto.format(v) : '—';
+    });
+    document.querySelectorAll('[data-data]').forEach((el) => {
+      const v = valore(el.dataset.data); const d = v ? new Date(v) : null;
+      el.textContent = d && !isNaN(d) ? fmtData(d) : '—';
+    });
+    document.querySelectorAll('[data-ora]').forEach((el) => {
+      const v = valore(el.dataset.ora); const d = v ? new Date(v) : null;
+      el.textContent = d && !isNaN(d) ? fmtOra(d) : '—';
+    });
+
+    // dati vecchi: il PC potrebbe essere spento o i processi fermi
+    const agg = valore('avanzamento.aggiornato_utc');
+    const eta = agg ? (Date.now() - new Date(agg)) / 60000 : null;
+    const inPausa = !!valore('avanzamento.prossimo_giro_utc');
+    avviso(eta != null && eta > 10 && !inPausa
+      ? `Ultimo aggiornamento ${Math.round(eta)} minuti fa: il PC potrebbe essere spento o i processi fermi.` : '');
+    const prossimo = valore('avanzamento.prossimo_giro_utc');
+    document.getElementById('prossimo-giro').textContent = prossimo ? `; prossimo giro alle ${fmtOra(new Date(prossimo))}` : '';
+
+    const a = riga0('avanzamento');
+    const quota = (k) => (a && a.mercati_totali ? Math.min(1, a[k] / a.mercati_totali) : 0);
+    document.getElementById('barra-candele').style.width = `${quota('candele_completati') * 100}%`;
+    document.getElementById('barra-funding').style.width = `${quota('funding_completati') * 100}%`;
+
+    tabella('t-test', righe('test'), (r) => [
+      [r.descrizione], [num(r.n_mercati, fmtInt), 'n'], [num(r.mediana_prime), 'n'], [num(r.mediana_dopo), 'n'],
+      [r.tipo === 'scala' ? num(r.rapporto_prime_su_dopo, d3.format('.2f')) : '—', 'n'],
+      [num(r.quota_prime_maggiore, fmtPct), 'n'], [pill(r.esito_grezzo)], [pill(r.esito_ctrl)],
+    ]);
+    tabella('t-premium', righe('premium'), (r) => [
+      [r.fascia], [num(r.n_mercati, fmtInt), 'n'], [num(r.mediana_abs_prem_bps, d3.format('.1f')), 'n'],
+      [num(r.pendenza, d3.format('+.3f')), 'n'], [num(r.contrarian_media_bps, d3.format('+.1f')), 'n'],
+      [num(r.contrarian_t, d3.format('.1f')), 'n'],
+    ]);
+    document.getElementById('vuoto-premium').textContent = righe('premium').length ? '' : 'In attesa della fase funding del download.';
+    tabella('t-weekend', righe('weekend'), (r) => [
+      [r.fascia], [num(r.n_weekend, fmtInt), 'n'], [num(r.correlazione, d3.format('+.2f')), 'n'],
+      [num(r.contrarian_media_bps, d3.format('+.1f')), 'n'], [num(r.contrarian_t, d3.format('.1f')), 'n'],
+    ]);
+    tabella('t-anomalie', righe('anomalie'), (r) => [
+      [r.coin], [r.settimana], [num(r.eta_sett, fmtInt), 'n'], [num(r.punteggio_anomalia, d3.format('.2f')), 'n'],
+      [num(r.spread_ar_bps, d3.format('.0f')), 'n'], [num(r.abs_ac1, d3.format('.2f')), 'n'],
+      [num(r.vr, d3.format('.2f')), 'n'], [r.notional_giorno == null ? '—' : fmtCompatto.format(r.notional_giorno), 'n'],
+    ]);
+
+    const visibile = (id) => !document.getElementById(id).closest('[data-pannello]').hidden;
+    if (visibile('g-fasce')) { disegnaFasce(); disegnaShock(); }
+    if (visibile('g-dex')) { disegnaDex(); disegnaRitmo(); }
+  }
+
+  // profilo per età: un piccolo grafico a barre per metrica
+  function disegnaFasce() {
+    const el = document.getElementById('g-fasce');
+    el.replaceChildren();
+    const rows = righe('fasce');
+    const metriche = [...new Set(rows.map((r) => r.metrica))].filter((m) => rows.some((r) => r.metrica === m && r.eccesso != null));
+    if (!metriche.length) {
+      const p = document.createElement('p'); p.className = 'note';
+      p.textContent = 'Servono almeno 3 mercati maturi nelle stesse settimane per il confronto: arriveranno con il download.';
+      el.appendChild(p); return;
+    }
+    const tip = tooltip(el);
+    metriche.forEach((m) => {
+      const rm = ORDINE.map((f) => rows.find((r) => r.metrica === m && r.fascia === f)).filter(Boolean);
+      const info = rm[0];
+      const box = document.createElement('div');
+      const h = document.createElement('h3'); h.textContent = info.descrizione; box.appendChild(h);
+      el.appendChild(box);
+      const W = box.clientWidth || 240, H = 120, mb = 18, mt = 4;
+      const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`);
+      const lim = Math.max(1e-9, d3.max(rm, (r) => (r.eccesso == null ? 0 : Math.abs(r.eccesso))));
+      const y = d3.scaleLinear([-lim, lim], [H - mb, mt]);
+      const x = d3.scaleBand(ORDINE, [0, W]).padding(0.25);
+      svg.append('line').attr('x1', 0).attr('x2', W).attr('y1', y(0)).attr('y2', y(0)).style('stroke', 'var(--axis)');
+      svg.selectAll('rect').data(rm.filter((r) => r.eccesso != null)).join('rect')
+        .attr('x', (r) => x(r.fascia)).attr('width', x.bandwidth())
+        .attr('y', (r) => Math.min(y(0), y(r.eccesso))).attr('height', (r) => Math.max(1, Math.abs(y(r.eccesso) - y(0))))
+        .attr('rx', 2)
+        .style('fill', (r) => (r.eccesso * r.direzione_ineff > 0 ? 'var(--a)' : 'var(--barra-muta)'))
+        .on('pointermove', (ev, r) => {
+          const [px, py] = d3.pointer(ev, el);
+          const v = r.tipo === 'scala' ? `${d3.format('.2f')(Math.exp(r.eccesso))}× i maturi` : `${d3.format('+.3~g')(r.eccesso)} rispetto ai maturi`;
+          tip.show(px, py, `${info.descrizione} · ${r.fascia}`, [v, `${r.n_mercati} mercati`]);
+        })
+        .on('pointerleave', () => tip.hide());
+      svg.selectAll('text').data(ORDINE).join('text')
+        .attr('x', (f) => x(f) + x.bandwidth() / 2).attr('y', H - 4).attr('text-anchor', 'middle')
+        .style('fill', 'var(--muted)').style('font-size', '10px').text((f) => f);
+    });
+  }
+
+  // rimbalzo dopo shock: griglia età x orizzonte, colore per segno e intensità del t
+  function disegnaShock() {
+    const el = document.getElementById('g-shock');
+    el.replaceChildren();
+    const rows = righe('shock').filter((r) => r.ingresso === 'una barra dopo');
+    if (!rows.length) { el.textContent = '—'; return; }
+    const ore = [...new Set(rows.map((r) => r.ore))].sort((p, q) => p - q);
+    el.style.gridTemplateColumns = `auto repeat(${ore.length}, minmax(0, 1fr))`;
+    const cella = (t, cl) => { const d = document.createElement('div'); if (cl) d.className = cl; d.textContent = t; el.appendChild(d); return d; };
+    cella('Età', 'h r');
+    ore.forEach((h) => cella(`${h}h`, 'h'));
+    const ok = d3.color(css('--ok')), bad = d3.color(css('--bad'));
+    ORDINE.forEach((f) => {
+      const rf = rows.filter((r) => r.fascia === f);
+      if (!rf.length) return;
+      cella(f, 'r');
+      ore.forEach((h) => {
+        const r = rf.find((x) => x.ore === h);
+        const d = cella(r ? `${d3.format('+.0f')(r.media_bps)} (${num(r.t, d3.format('.1f'))})` : '—');
+        if (r && r.t != null) {
+          const c = d3.color(r.media_bps > 0 ? ok : bad);
+          if (c) { c.opacity = Math.min(1, Math.abs(r.t) / 4) * 0.35; d.style.background = c.formatRgb(); }
+          d.title = `${r.n_eventi} eventi su ${r.n_mercati} mercati`;
+        }
+      });
+    });
+  }
+
+  function disegnaDex() {
+    const el = document.getElementById('g-dex');
+    el.replaceChildren();
+    const rows = righe('per_dex');
+    if (!rows.length) { el.textContent = '—'; return; }
+    const W = el.clientWidth || 400, riga = 30;
+    const svg = d3.select(el).append('svg').attr('width', '100%');
+    const prova = svg.append('g');
+    rows.forEach((r) => prova.append('text').style('font-size', '12px').text(r.dex));
+    const ml = d3.max(prova.selectAll('text').nodes(), (n) => n.getComputedTextLength()) + 10;
+    prova.remove();
+    const mr = 64, mt = 4, H = mt + rows.length * riga;
+    svg.attr('viewBox', `0 0 ${W} ${H}`);
+    const x = d3.scaleLinear([0, d3.max(rows, (r) => r.totale)], [ml, W - mr]);
+    const tip = tooltip(el);
+    const g = svg.selectAll('g.r').data(rows).join('g').attr('transform', (r, i) => `translate(0,${mt + i * riga})`);
+    g.append('text').attr('x', ml - 8).attr('y', 13).attr('text-anchor', 'end').style('fill', 'var(--fg)').style('font-size', '12px').text((r) => r.dex);
+    g.append('rect').attr('x', ml).attr('y', 4).attr('height', 12).attr('rx', 2).attr('width', (r) => x(r.totale) - ml).style('fill', 'var(--grid)');
+    g.append('rect').attr('x', ml).attr('y', 4).attr('height', 12).attr('rx', 2).attr('width', (r) => x(r.candele) - ml).style('fill', 'var(--a)');
+    g.append('rect').attr('x', ml).attr('y', 18).attr('height', 5).attr('rx', 2).attr('width', (r) => x(r.funding) - ml).style('fill', 'var(--b)');
+    g.append('text').attr('x', (r) => x(r.totale) + 6).attr('y', 14).style('fill', 'var(--muted)').style('font-size', '12px')
+      .style('font-variant-numeric', 'tabular-nums').text((r) => `${r.candele}/${r.totale}`);
+    g.append('rect').attr('width', W).attr('height', riga).style('fill', 'transparent')
+      .on('pointermove', (ev, r) => {
+        const [px, py] = d3.pointer(ev, el);
+        tip.show(px, py, r.dex, [`${fmtInt(r.totale)} mercati`, `Candele: ${fmtInt(r.candele)}`, `Funding: ${fmtInt(r.funding)}`]);
+      })
+      .on('pointerleave', () => tip.hide());
+  }
+
+  function disegnaRitmo() {
+    const el = document.getElementById('g-ritmo');
+    el.replaceChildren();
+    const a = riga0('avanzamento');
+    const pts = righe('storico').map((p) => ({ at: new Date(p.at), candele: +p.candele, funding: +p.funding }));
+    if (!pts.length || !a) { el.textContent = '—'; return; }
+    const W = el.clientWidth || 400, H = 288, mt = 10, mb = 24, fineEt = 56;
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`);
+    const y = d3.scaleLinear([0, a.mercati_totali], [H - mb, mt]).nice();
+    const prova = svg.append('g').call(d3.axisLeft(y).ticks(5)).attr('font-size', null).attr('font-family', null);
+    prova.selectAll('text').style('font-size', '12px');
+    const ml = d3.max(prova.selectAll('text').nodes(), (n) => n.getComputedTextLength()) + 14;
+    prova.remove();
+    const dom = d3.extent(pts, (p) => p.at);
+    if (+dom[0] === +dom[1]) dom[1] = new Date(+dom[0] + 10 * 60000);
+    const x = d3.scaleTime(dom, [ml, W - fineEt]);
+    svg.append('g').attr('transform', `translate(${ml},0)`)
+      .call(d3.axisLeft(y).ticks(5).tickSize(-(W - fineEt - ml))).attr('font-size', null).attr('font-family', null)
+      .call((s) => s.select('.domain').remove())
+      .call((s) => s.selectAll('line').style('stroke', 'var(--grid)'))
+      .call((s) => s.selectAll('text').style('fill', 'var(--muted)').style('font-size', '12px'));
+    svg.append('g').attr('transform', `translate(0,${H - mb})`)
+      .call(d3.axisBottom(x).ticks(Math.max(2, Math.floor((W - ml) / 90))).tickFormat(fmtOra))
+      .attr('font-size', null).attr('font-family', null)
+      .call((s) => s.selectAll('.domain, line').style('stroke', 'var(--axis)'))
+      .call((s) => s.selectAll('text').style('fill', 'var(--muted)').style('font-size', '12px'));
+    [['candele', 'var(--a)'], ['funding', 'var(--b)']].forEach(([k, c]) => {
+      svg.append('path').datum(pts).style('fill', 'none').style('stroke', c).attr('stroke-width', 2)
+        .attr('stroke-linecap', 'round').attr('stroke-linejoin', 'round')
+        .attr('d', d3.line().x((p) => x(p.at)).y((p) => y(p[k])));
+    });
+    const u = pts[pts.length - 1];
+    let yc = y(u.candele), yf = y(u.funding);
+    if (Math.abs(yc - yf) < 14) { const m = (yc + yf) / 2; yc = m - 7; yf = m + 7; }
+    [[y(u.candele), yc, u.candele, 'var(--a)'], [y(u.funding), yf, u.funding, 'var(--b)']].forEach(([yp, yt, v, c]) => {
+      svg.append('circle').attr('cx', x(u.at)).attr('cy', yp).attr('r', 3.5).style('fill', c);
+      svg.append('text').attr('x', x(u.at) + 8).attr('y', yt + 4).style('fill', c).style('font-size', '12px')
+        .style('font-variant-numeric', 'tabular-nums').text(v);
+    });
+    const tip = tooltip(el);
+    const rif = svg.append('line').attr('y1', mt).attr('y2', H - mb).style('stroke', 'var(--axis)').style('display', 'none');
+    svg.append('rect').attr('x', ml).attr('y', mt).attr('width', Math.max(0, W - fineEt - ml)).attr('height', H - mb - mt).style('fill', 'transparent')
+      .on('pointermove', (ev) => {
+        const [px] = d3.pointer(ev, svg.node());
+        const p = pts[d3.minIndex(pts, (q) => Math.abs(x(q.at) - px))];
+        rif.attr('x1', x(p.at)).attr('x2', x(p.at)).style('display', null);
+        const [bx, by] = d3.pointer(ev, el);
+        tip.show(bx, by, fmtData(p.at), [`Candele: ${fmtInt(p.candele)}`, `Funding: ${fmtInt(p.funding)}`]);
+      })
+      .on('pointerleave', () => { tip.hide(); rif.style('display', 'none'); });
+  }
+
+  let timer;
+  window.addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(disegna, 200); });
+  if (LOCALE) document.getElementById('esci').hidden = true;
+  carica();
+  // online: 90 secondi per restare sotto le 60 richieste l'ora dell'API di GitHub
+  setInterval(carica, LOCALE ? 30000 : 90000);
+</script>
+</body>
+</html>
