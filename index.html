@@ -354,7 +354,9 @@
       campo.value = '';
       usaDati(arr);
     } catch (e) {
-      erroreLogin(`Non riesco a verificare la password (${e.message}).`);
+      erroreLogin(/404/.test(e.message)
+        ? 'I dati cifrati non sono ancora arrivati su GitHub: riprova tra un minuto.'
+        : `Non riesco a verificare la password (${e.message}).`);
     } finally {
       bottone.disabled = false; bottone.textContent = 'Entra';
     }
